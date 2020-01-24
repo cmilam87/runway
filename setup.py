@@ -74,15 +74,6 @@ setup(
     packages=find_packages(where='src'),
     package_dir={"": "src"},
     install_requires=INSTALL_REQUIRES,
-    extras_require={
-        'test': ['flake8', 'pep8-naming', 'flake8-docstrings',
-                 'mock~=3.0.5', 'pylint',
-                 # python3 flake8-docstrings fails with pydocstyle 4:
-                 # https://github.com/PyCQA/pydocstyle/issues/375
-                 # newer versions do not support python2:
-                 # https://github.com/PyCQA/pydocstyle/pull/374
-                 'pydocstyle<4.0.0'],
-    },
     entry_points={
         'console_scripts': [
             'runway=runway.cli:main',
@@ -91,6 +82,5 @@ setup(
     scripts=['scripts/stacker-runway', 'scripts/stacker-runway.cmd',
              'scripts/tf-runway', 'scripts/tf-runway.cmd',
              'scripts/tfenv-runway', 'scripts/tfenv-runway.cmd'],
-    include_package_data=True,  # needed for templates,blueprints,hooks
-    test_suite='tests'
+    include_package_data=True  # needed for templates,blueprints,hooks
 )
