@@ -14,7 +14,7 @@ if [ "$TRAVIS_OS_NAME" = "osx" ] || [ "$TRAVIS_OS_NAME" = "windows" ]; then
     PIPENV="pipenv run "
 fi
 
-${PIPENV}${PYTHON} setup.py test
+${PIPENV}pytest
 
 ${PIPENV}flake8 --exclude=src/runway/cfngin,src/runway/embedded,src/runway/templates src/runway
 find src/runway -name '*.py' -not -path 'src/runway/cfngin*' -not -path 'src/runway/embedded*' -not -path 'src/runway/templates/stacker/*' -not -path 'src/runway/templates/cdk-py/*' -not -path 'src/runway/blueprints/*' | xargs pipenv run ${PIPENV}pylint --rcfile=.pylintrc
