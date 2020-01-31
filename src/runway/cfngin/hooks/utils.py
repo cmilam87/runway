@@ -108,7 +108,7 @@ class Docker(object):
                 'run',
                 '--rm',
                 '-v',
-                '%s:/test', % path
+                '%s:/test' % path,
                 'alpine',
                 'ls',
                 '/test/requirements.txt'
