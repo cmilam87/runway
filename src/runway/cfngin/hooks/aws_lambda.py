@@ -16,11 +16,11 @@ from troposphere.awslambda import Code
 
 from ..session_cache import get_session
 from ..util import (ensure_s3_bucket,
-                    get_config_directory,
-                    Docker,
-                    merge_commands,
-                    run_command,
-                    tempdir)
+                    get_config_directory)
+from utils import (Docker,
+                   merge_commands,
+                   run_command,
+                   tempdir)
 
 # mask to retrieve only UNIX file permissions from the external attributes
 # field of a ZIP entry.
@@ -220,7 +220,13 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
         dockercmd = []
 
         docker = Docker.parse_options(options)
-        if docker:
+        if options.get('dockerizePip', False) == 'non-linux' and \
+                sys.platform.lower() != 'linux':
+            docker = Docker(options.get('dockerizePip'),
+                            options.get('runtime'),
+                            options.get('dockerImage'),
+                            options.get('dockerFile'))
+
             pipcmd.extend(['-t', '/var/task', '-r',
                            '/var/task/requirements.txt'])
 
@@ -233,10 +239,11 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
 
             bind_path = docker.get_bind_path(dockerdir)
             dockercmd.extend(['docker', 'run', '--rm', '-v',
-                              f'{bind_path}:/var/task'])
+                              '%s:/var/task' % bind_path])
 
             if sys.platform.lower() == 'linux':
-                pipcmd.extend(['chown', '-R', f'{os.getpid()}:{os.getpgrp()}',
+                pipcmd.extend(['chown', '-R',
+                               '%s:%s' % (os.getpid(), os.getpgrp()),
                                '/var/task'])
             else:
                 dockercmd.extend(['-u', docker.get_uid(bind_path)])
