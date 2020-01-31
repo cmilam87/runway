@@ -424,6 +424,7 @@ def _upload_function(s3_conn, bucket, prefix, name, options, follow_symlinks,
     if not os.path.isabs(root):
         root = os.path.abspath(os.path.join(get_config_directory(), root))
 
+    lock_file = None
     if os.path.isfile(os.path.join(root, 'Pipfile')):
         if not os.path.isfile(os.path.join(root, 'Pipfile.lock')):
             LOGGER.warning('Found Pipfile but no Pipfile.lock!')
