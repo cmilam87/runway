@@ -1,8 +1,10 @@
 """CFNgin utilities."""
 import copy
+import errno
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -11,6 +13,7 @@ import tempfile
 import uuid
 import zipfile
 from collections import OrderedDict
+from contextlib import contextmanager
 
 import botocore.client
 import botocore.exceptions
@@ -18,11 +21,166 @@ import dateutil
 import yaml
 from yaml.constructor import ConstructorError
 from yaml.nodes import MappingNode
+from runway.util import change_dir
 
 from .awscli_yamlhelper import yaml_parse
 from .session_cache import get_session
 
 LOGGER = logging.getLogger(__name__)
+
+
+def filter_commands(commands):
+    """Remove empty commands."""
+    return [cmd for cmd in commands if cmd and len(cmd) > 0]
+
+
+def merge_commands(commands):
+    """Merge command lists."""
+    cmds = filter_commands(commands)
+    if not cmds:
+        raise ValueError('Expected at least one non-empty command')
+    if len(cmds) == 1:
+        return cmds[0]
+
+    script = ' && '.join([shlex.quote(cmd) for cmd in cmds])
+    return ['/bin/sh', '-c', script]
+
+
+def run_command(cmd_list, cwd=os.getcwd(), stdout=sys.stdout):
+    """Run command."""
+    try:
+        subprocess.check_call(cmd_list, cwd=cwd, stdout=stdout)
+    except OSError as err:
+        if err.errno == errno.ENOENT:
+            LOGGER.error('%s is not installed!', cmd_list[0])
+        raise err
+
+
+class Docker(object):
+    """Docker options."""
+
+    @classmethod
+    def parse_options(cls, options):
+        """Parse docker options."""
+        if options.get('dockerizePip'):
+            return cls(options)
+        return None
+
+    def get_uid(self, bind_path):
+        """Get UID of docker process."""
+        output = subprocess.check_output(
+            ['docker', 'run', '--rm',
+             '-v', f'{bind_path}:/test', 'alpine',
+             'stat', '-c', '%u', '/bin/sh'])
+        return output.decode().strip()
+
+    def try_bind_path(self, path):
+        """Try mounting volume path in docker."""
+        try:
+            output = subprocess.check_output([
+                'docker',
+                'run',
+                '--rm',
+                '-v',
+                f'{path}:/test',
+                'alpine',
+                'ls',
+                '/test/requirements.txt'
+            ]).decode().strip()
+            return output == '/test/requirements.txt'
+        except subprocess.CalledProcessError as err:
+            LOGGER.debug(err)
+            return False
+
+    def get_bind_path(self, service_path):
+        """Find suitable volume path for Docker for Windows."""
+        if sys.platform.lower() != 'win32':
+            return service_path
+
+        bind_paths = []
+        base_bind_path = re.sub(r'\\([^\s])', '/$1', service_path)
+
+        bind_paths.append(base_bind_path)
+        if base_bind_path.startswith('/mnt/'):
+            # cygwin "/mnt/C/users/..."
+            base_bind_path = re.sub('^/mnt/', '/', base_bind_path)
+        if base_bind_path[1] == ':':
+            # normal windows "c:/users/..."
+            drive = base_bind_path[0]
+            path = base_bind_path[3:]
+        elif base_bind_path[0] == '/' and base_bind_path[2] == '/':
+            # gitbash "/c/users/..."
+            drive = base_bind_path[1]
+            path = base_bind_path.substring[3:]
+        else:
+            raise ValueError('Unknown path format'
+                             f'{base_bind_path[10:]}...')
+
+        # Docker Toolbox (seems like Docker for Windows can support this too)
+        bind_paths.append(f'/{drive.lower()}/{path}')
+        # Docker for Windows
+        bind_paths.append(f'{drive.lower()}:/{path}')
+        # other options just in case
+        bind_paths.append(f'/{drive.upper()}/{path}')
+        bind_paths.append(f'/mnt/{drive.lower()}/{path}')
+        bind_paths.append(f'/mnt/{drive.upper()}/{path}')
+        bind_paths.append(f'{drive.upper()}:/{path}')
+
+        for bind_path in bind_paths:
+            if self.try_bind_path(bind_path):
+                return bind_path
+
+        raise ValueError('Unable to find good bind path format')
+
+    def __init__(self, options):
+        if options.get('dockerizePip', False) == 'non-linux':
+            self._dockerize_pip = sys.platform != 'linux'
+
+        if options.get('dockerImage') and options.get('dockerFile'):
+            raise ValueError('You can provide a dockerImage or a dockerFile'
+                             ' option, not both')
+
+        if not options.get('runtime'):
+            raise ValueError('runtime is required when using docker')
+
+        self._runtime = options.get('runtime')
+
+        default_image = f'lambci/lambda:build-{self._runtime}'
+        self._image = options.get('dockerImage') or default_image
+
+        self._docker_file = options.get('dockerFile', None)
+
+    @property
+    def image(self):
+        """Docker image to use."""
+        return self._image
+
+    @property
+    def docker_file(self):
+        """Docker file to use."""
+        return None or self._docker_file
+
+    @property
+    def dockerize_pip(self):
+        """Whether or not to use docker for pip install."""
+        return self._dockerize_pip
+
+    def build_image(self):
+        """Build custom docker image."""
+        image_name = 'stacker-custom'
+        options = ['build', '-f', self.docker_file, '-t', image_name]
+        run_command(['docker'] + options)
+        self._image = image_name
+
+
+@contextmanager
+def tempdir():
+    """Create temp directory and cleanup."""
+    dirpath = tempfile.mkdtemp()
+
+    with change_dir(dirpath):
+        yield dirpath
+    shutil.rmtree(dirpath)
 
 
 def camel_to_snake(name):

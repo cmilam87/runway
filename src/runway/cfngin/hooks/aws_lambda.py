@@ -4,7 +4,9 @@ import logging
 import os
 import os.path
 import stat
+import sys
 from io import BytesIO as StringIO
+from shutil import copyfile
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import botocore
@@ -13,7 +15,12 @@ from six import string_types
 from troposphere.awslambda import Code
 
 from ..session_cache import get_session
-from ..util import ensure_s3_bucket, get_config_directory
+from ..util import (ensure_s3_bucket,
+                    get_config_directory,
+                    Docker,
+                    merge_commands,
+                    run_command,
+                    tempdir)
 
 # mask to retrieve only UNIX file permissions from the external attributes
 # field of a ZIP entry.
@@ -161,6 +168,93 @@ def _zip_from_file_patterns(root, includes, excludes, follow_symlinks):
         LOGGER.debug('lambda: + %s', file_name)
 
     return _zip_files(files, root)
+
+
+def _generate_requirements_file(root, path):
+    """Create requirements file from Pipfile.
+
+    Args:
+        root (str): Base directory to generate requirements from.
+        path (str): Where to output the requirements file.
+
+    Raises:
+        OSError: when pipenv does not exist.
+    """
+    LOGGER.info('Creating requirements.txt from Pipfile')
+    with open(os.path.join(path, 'requirements.txt'), 'w') \
+            as requirements:
+        run_command([
+            'pipenv',
+            'lock',
+            '--requirements',
+            '--keep-outdated'
+        ], cwd=root, stdout=requirements)
+    return os.path.join(path, 'requirements.txt')
+
+
+def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
+                 options):
+    """Create zip file in memory with restored packages.
+
+    Args:
+        lock_file (str): Name of the lock file (Pipfile.lock or requirements.txt).
+        root (str): Base directory to copy files from.
+        includes (List[str]): Inclusion patterns. Only files  matching those
+            patterns will be included in the result.
+        excludes (List[str]): Exclusion patterns. Files matching those
+            patterns will be excluded from the result. Exclusions take
+            precedence over inclusions.
+        follow_symlinks (bool): If true, symlinks will be included in the
+            resulting zip file
+        options (Dict[str, Any]): List of options for lambda function.
+    """
+    with tempdir() as tmpdir:
+        if lock_file == 'Pipfile.lock':
+            _generate_requirements_file(root, tmpdir)
+        files = list(_find_files(root, includes, excludes, follow_symlinks))
+        for fname in files:
+            copyfile(os.path.join(root, fname),
+                     os.path.join(tmpdir, fname))
+
+        pipcmd = ['python', '-m', 'pip', 'install']
+        dockercmd = []
+
+        docker = Docker.parse_options(options)
+        if docker:
+            pipcmd.extend(['-t', '/var/task', '-r',
+                           '/var/task/requirements.txt'])
+
+            if docker.docker_file:
+                docker.build_image()
+
+            dockerdir = tmpdir
+            if sys.platform.lower() == 'win32':
+                dockerdir = dockerdir.replace('\\', '/')
+
+            bind_path = docker.get_bind_path(dockerdir)
+            dockercmd.extend(['docker', 'run', '--rm', '-v',
+                              f'{bind_path}:/var/task'])
+
+            if sys.platform.lower() == 'linux':
+                pipcmd.extend(['chown', '-R', f'{os.getpid()}:{os.getpgrp()}',
+                               '/var/task'])
+            else:
+                dockercmd.extend(['-u', docker.get_uid(bind_path)])
+
+            dockercmd.extend([docker.image])
+        else:
+            pipcmd.extend(['-t', tmpdir, '-r',
+                           os.path.join(tmpdir, 'requirements.txt')])
+        if dockercmd:
+            dockercmd.extend(merge_commands([pipcmd]))
+            run_command(dockercmd, cwd=tmpdir)
+        else:
+            run_command(pipcmd, cwd=tmpdir)
+
+        files = list(_find_files(tmpdir, '**', [], False))
+        contents, content_hash = _zip_files(files, tmpdir)
+
+    return contents, content_hash
 
 
 def _head_object(s3_conn, bucket, key):
@@ -322,10 +416,25 @@ def _upload_function(s3_conn, bucket, prefix, name, options, follow_symlinks,
     # absolute path, which is exactly what we want.
     if not os.path.isabs(root):
         root = os.path.abspath(os.path.join(get_config_directory(), root))
-    zip_contents, content_hash = _zip_from_file_patterns(root,
-                                                         includes,
-                                                         excludes,
-                                                         follow_symlinks)
+
+    if os.path.isfile(os.path.join(root, 'Pipfile')):
+        if not os.path.isfile(os.path.join(root, 'Pipfile.lock')):
+            LOGGER.warning('Found Pipfile but no Pipfile.lock!')
+        lock_file = 'Pipfile.lock'
+    elif os.path.isfile(os.path.join(root, 'requirements.txt')):
+        lock_file = 'requirements.txt'
+
+    if lock_file:
+        LOGGER.info('Found %s', os.path.join(root, lock_file))
+        zip_contents, content_hash = _zip_package(lock_file,
+                                                  root,
+                                                  includes,
+                                                  excludes,
+                                                  follow_symlinks,
+                                                  options)
+    else:
+        zip_contents, content_hash = _zip_from_file_patterns(
+            root, includes, excludes, follow_symlinks)
 
     return _upload_code(s3_conn, bucket, prefix, name, zip_contents,
                         content_hash, payload_acl)
