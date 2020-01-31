@@ -14,13 +14,15 @@ import formic
 from six import string_types
 from troposphere.awslambda import Code
 
+from .utils import (Docker,
+                    merge_commands,
+                    run_command,
+                    tempdir)
+
 from ..session_cache import get_session
 from ..util import (ensure_s3_bucket,
                     get_config_directory)
-from utils import (Docker,
-                   merge_commands,
-                   run_command,
-                   tempdir)
+
 
 # mask to retrieve only UNIX file permissions from the external attributes
 # field of a ZIP entry.
@@ -219,7 +221,6 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
         pipcmd = ['python', '-m', 'pip', 'install']
         dockercmd = []
 
-        docker = Docker.parse_options(options)
         if options.get('dockerizePip', False) == 'non-linux' and \
                 sys.platform.lower() != 'linux':
             docker = Docker(options.get('dockerizePip'),
@@ -229,9 +230,6 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
 
             pipcmd.extend(['-t', '/var/task', '-r',
                            '/var/task/requirements.txt'])
-
-            if docker.docker_file:
-                docker.build_image()
 
             dockerdir = tmpdir
             if sys.platform.lower() == 'win32':

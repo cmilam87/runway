@@ -77,10 +77,10 @@ class Docker(object):
                              ' option, not both')
 
         if docker_file:
-            self.docker_file = docker_file
-
-        default_image = 'lambci/lambda:build-%s' % runtime
-        self.image = docker_image or default_image
+            self.build_image()
+        else:
+            default_image = 'lambci/lambda:build-%s' % runtime
+            self.image = docker_image or default_image
 
     @staticmethod
     def get_uid(bind_path):
