@@ -43,7 +43,8 @@ INSTALL_REQUIRES = [
     'jinja2>=2.7,<3.0',
     'schematics>=2.0.1,<2.1.0',
     'formic2',
-    'python-dateutil>=2.0,<3.0'
+    'python-dateutil>=2.0,<3.0',
+    'backports.tempfile;python_version<"3.2"'
 ]
 
 

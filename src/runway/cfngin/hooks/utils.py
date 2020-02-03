@@ -8,29 +8,11 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 from contextlib import contextmanager
 
-from runway.util import load_object_from_string, change_dir
+from runway.util import load_object_from_string
 
 LOGGER = logging.getLogger(__name__)
-
-
-def filter_commands(commands):
-    """Remove empty commands."""
-    return [cmd for cmd in commands if cmd and len(cmd) > 0]
-
-
-def merge_commands(commands):
-    """Merge command lists."""
-    cmds = filter_commands(commands)
-    if not cmds:
-        raise ValueError('Expected at least one non-empty command')
-    if len(cmds) == 1:
-        return cmds[0]
-
-    script = ' && '.join([shlex.quote(cmd) for cmd in cmds])
-    return ['/bin/sh', '-c', script]
 
 
 def run_command(cmd_list, cwd=os.getcwd(), stdout=sys.stdout):
@@ -44,24 +26,24 @@ def run_command(cmd_list, cwd=os.getcwd(), stdout=sys.stdout):
 
 
 class Docker(object):
-    """Docker options.
-
-    Args:
-        dockerizePip (Union(str, bool)): Whether or not to use pip inside docker container.
-            Valid options are True/False or the string 'non-linux'.
-        runtime (str): The runtime use to find a suitable docker image.
-            Example: 'python3.7'
-            Image:   'lambdaci/lambda:build-{runtime}'
-        dockerImage (str): The name of the docker image to use to run pip.
-        dockerFile (str): The docker file to use when creating docker image. Can be a
-            relative or absolute path.
-    """
+    """Docker options."""
 
     def __init__(self,
                  dockerize_pip,
                  runtime,
                  docker_image=None,
                  docker_file=None):
+        """
+        Args:
+            dockerize_pip (Union[str, boo])): Whether or not to use pip inside docker container.
+                Valid options are True/False or the string 'non-linux'.
+            runtime (str): The runtime use to find a suitable docker image.
+                Example: 'python3.7'
+                Image:   'lambdaci/lambda:build-{runtime}'
+            docker_image (Optional[str]): The name of the docker image to use to run pip.
+            docker_file (Optional[str]): The docker file to use when creating docker image.
+                Can be a relative or absolute path.
+        """
         if not runtime and not docker_image:
             raise ValueError('runtime is required when no docker image is specified')
 
@@ -69,15 +51,17 @@ class Docker(object):
 
         if dockerize_pip == 'non-linux':
             self.dockerize_pip = sys.platform.lower() != 'linux'
-        else:
+        elif isinstance(dockerize_pip, bool):
             self.dockerize_pip = dockerize_pip
+        else:
+            raise ValueError('Invalid option specified for "dockerize_pip"')
 
         if docker_image and docker_file:
             raise ValueError('You can provide a dockerImage or a dockerFile'
                              ' option, not both')
 
         if docker_file:
-            self.build_image()
+            self.build_image(docker_file)
         else:
             default_image = 'lambci/lambda:build-%s' % runtime
             self.image = docker_image or default_image
@@ -163,10 +147,10 @@ class Docker(object):
 
         raise ValueError('Unable to find good bind path format')
 
-    def build_image(self):
+    def build_image(self, docker_file):
         """Build custom docker image using docker file."""
         image_name = 'cfngin-custom'
-        options = ['build', '-f', self.docker_file, '-t', image_name]
+        options = ['build', '-f', docker_file, '-t', image_name]
         run_command(['docker'] + options)
         self.image = image_name
 
@@ -174,11 +158,13 @@ class Docker(object):
 @contextmanager
 def tempdir():
     """Create temp directory and cleanup."""
-    dirpath = tempfile.mkdtemp()
+    if sys.version_info[0] < 3:
+        from backports import tempfile
+    else:
+        import tempfile
 
-    with change_dir(dirpath):
-        yield dirpath
-    shutil.rmtree(dirpath)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield tmpdir
 
 
 def full_path(path):

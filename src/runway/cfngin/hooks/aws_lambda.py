@@ -15,7 +15,6 @@ from six import string_types
 from troposphere.awslambda import Code
 
 from .utils import (Docker,
-                    merge_commands,
                     run_command,
                     tempdir)
 
@@ -221,12 +220,12 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
         pipcmd = ['python', '-m', 'pip', 'install']
         dockercmd = []
 
-        if options.get('dockerizePip', False) == 'non-linux' and \
+        if options.get('dockerize_pip', False) == 'non-linux' and \
                 sys.platform.lower() != 'linux':
-            docker = Docker(options.get('dockerizePip'),
+            docker = Docker(options.get('dockerize_pip'),
                             options.get('runtime'),
-                            options.get('dockerImage'),
-                            options.get('dockerFile'))
+                            options.get('docker_image'),
+                            options.get('docker_file'))
 
             pipcmd.extend(['-t', '/var/task', '-r',
                            '/var/task/requirements.txt'])
@@ -251,7 +250,7 @@ def _zip_package(lock_file, root, includes, excludes, follow_symlinks,
             pipcmd.extend(['-t', tmpdir, '-r',
                            os.path.join(tmpdir, 'requirements.txt')])
         if dockercmd:
-            dockercmd.extend(merge_commands([pipcmd]))
+            dockercmd.extend(['/bin/sh', '-c', ' '.join(pipcmd)])
             run_command(dockercmd, cwd=tmpdir)
         else:
             run_command(pipcmd, cwd=tmpdir)
