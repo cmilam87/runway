@@ -31,3 +31,5 @@ preuninstall.js
 !integration_tests/**/package.json
 
 tests/fixtures/blueprints/*-result
+
+docs/source/apidocs
