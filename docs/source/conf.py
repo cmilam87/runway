@@ -16,8 +16,9 @@
 from os.path import dirname, realpath
 import os.path
 import sys
-root_dir = dirname(dirname(dirname(realpath(__file__))))
-sys.path.insert(0, os.path.join(root_dir, 'src'))
+ROOT_DIR = dirname(dirname(dirname(realpath(__file__))))
+DOC_SRC = os.path.join(ROOT_DIR, 'docs/source')
+sys.path.insert(0, os.path.join(ROOT_DIR, 'src'))
 
 from runway import __version__  # noqa
 
@@ -46,7 +47,8 @@ release = __version__
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
-    'sphinx.ext.viewcode'
+    'sphinx.ext.viewcode',
+    'sphinxcontrib.apidoc'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -187,3 +189,14 @@ autoclass_content = 'both'
 # -- Options for napoleon  ----------------------------------------------------
 napoleon_google_docstring = True
 napoleon_include_init_with_doc = False
+
+# -- Options for sphinxcontrib.apidoc  ----------------------------------------
+apidoc_excluded_paths = ['cfngin/commands', 'templates']
+apidoc_extra_args = [
+    f"--templatedir={os.path.join(DOC_SRC, '_templates/apidocs')}"
+]
+apidoc_module_dir = '../../src/runway'
+apidoc_module_first = True
+apidoc_output_dir = 'apidocs'
+apidoc_separate_modules = True
+apidoc_toc_file = 'index'
