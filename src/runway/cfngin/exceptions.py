@@ -283,6 +283,7 @@ class PlanFailed(Exception):
 class StackDidNotChange(Exception):
     """Raised when there are no changes to be made by the provider."""
 
+
 class StackDoesNotExist(Exception):
     """Raised when a stack does not exist in AWS."""
 

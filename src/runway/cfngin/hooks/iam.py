@@ -18,8 +18,7 @@ LOGGER = logging.getLogger(__name__)
 def create_ecs_service_role(provider, context, **kwargs):
     """Create ecsServieRole, which has to be named exactly that currently.
 
-    See: http://docs.aws.amazon.com/AmazonECS/latest/developerguide/
-    IAM_policies.html#service_IAM_role
+    http://docs.aws.amazon.com/AmazonECS/latest/developerguide/IAM_policies.html#service_IAM_role
 
     Args:
         provider (:class:`runway.cfngin.providers.base.BaseProvider`): Provider
